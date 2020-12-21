@@ -52,6 +52,38 @@ namespace ExponentialEnumerable
 
         // Diagnostic triggered and checked for
         [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticForExpressiveLinq()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
+	        var ones = Enumerable.Repeat(1, 10);
+	        // An enumerable of twos [2,2,2,2,2,2,2,2,2,2]
+	        var twos = Enumerable.Repeat(2, 10);
+	
+	        ones.Select(o => o).Where(o => twos.Contains(o)).ToList();
+        }
+    }
+}";
+
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 41);
+            await VerifyCS.VerifyAnalyzerAsync(test, expected);
+        }
+
+        // Diagnostic triggered and checked for
+        [TestMethod]
         public async Task TestExponentialEnumerableDiagnosticForForLoop()
         {
             var test = @"
