@@ -45,9 +45,9 @@ namespace ExponentialEnumerable
         /// <param name="context">The analyzer context</param>
         private static void LookForExponentialEnumerables(SyntaxNodeAnalysisContext context)
         {
-            if (TryGetIdentNameSyntax(context.Node, out IdentifierNameSyntax identNameExpressionSyntax))
+            if (TryGetIdentNameSyntax(context.Node, out IdentifierNameSyntax identNameSyntax))
             {
-                if (!IsIEnumerable(context, identNameExpressionSyntax)) { return; }
+                if (!IsIEnumerable(context, identNameSyntax)) { return; }
 
                 // Loop for invocations inside of a loop block
                 var loopNode = context.Node.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.Block);
@@ -58,18 +58,16 @@ namespace ExponentialEnumerable
                 }
 
                 // If loopNode is an invocation expression and it's caller identifier is an enumerable, then report diagnostic (for linq expressions)
-                var potentialLinqInvocations = context.Node.Parent.Ancestors().OfType<InvocationExpressionSyntax>();
-                foreach (var potentialLinqInvocation in potentialLinqInvocations)
+                var potentialLinqInvocation = context.Node.Parent.FirstAncestorOrSelf<SyntaxNode>(a => a.Kind() == SyntaxKind.InvocationExpression);
+                
+                // Check if the parent invocation is invoked on an enumerable
+                if (!TryGetIdentNameSyntax(potentialLinqInvocation, out IdentifierNameSyntax linqIdentNameSyntax) || linqIdentNameSyntax == identNameSyntax || !IsIEnumerable(context, linqIdentNameSyntax))
                 {
-                    // Check if the parent invocation is invoked on an enumerable
-                    if (!TryGetIdentNameSyntax(potentialLinqInvocation, out IdentifierNameSyntax linqIdentNameSyntax) || !IsIEnumerable(context, linqIdentNameSyntax))
-                    {
-                        return;
-                    }
-
-                    // The enumerable is being invoked multiple times inside a loop
-                    context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation()));
+                    return;
                 }
+
+                // The enumerable is being invoked multiple times inside a loop
+                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation()));
             }
         }
 
@@ -101,13 +99,22 @@ namespace ExponentialEnumerable
         /// <returns>True if the IdentifierNameSyntax node was found, otherwise False</returns>
         private static bool TryGetIdentNameSyntax(SyntaxNode invocationExpression, out IdentifierNameSyntax identNameSyntax)
         {
-            if (invocationExpression is InvocationExpressionSyntax invocationExpressionSyntax
-                && invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax
-                && !(memberAccessExpressionSyntax.Expression is null)
-                && memberAccessExpressionSyntax.Expression is IdentifierNameSyntax identName) 
-            {
-                identNameSyntax = identName;
-                return true;
+            if (invocationExpression is InvocationExpressionSyntax invocationExpressionSyntax) {
+                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax)
+                {
+                    if (!(memberAccessExpressionSyntax.Expression is null))
+                    {
+                        if (memberAccessExpressionSyntax.Expression is IdentifierNameSyntax identName)
+                        {
+                            identNameSyntax = identName;
+                            return true;
+                        }
+                        else if (memberAccessExpressionSyntax.Expression is InvocationExpressionSyntax invocationExpressionSyntax2)
+                        {
+                            return TryGetIdentNameSyntax(invocationExpressionSyntax2, out identNameSyntax);
+                        }
+                    }
+                }
             }
 
             identNameSyntax = null;
