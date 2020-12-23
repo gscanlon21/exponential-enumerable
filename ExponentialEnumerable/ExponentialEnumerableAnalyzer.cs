@@ -55,6 +55,7 @@ namespace ExponentialEnumerable
             var iOrderedQueryableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIOrderedQueryableMetadataName);
 
             var loopDataFlow = context.SemanticModel.AnalyzeDataFlow(context.Node);
+            if (!loopDataFlow.Succeeded) { return; }
 
             // Get the syntax scope of the context node, ignoring arguments and loop variable declarations
             var nodeScopes = context.Node.ChildNodes().Where(c =>
@@ -64,25 +65,24 @@ namespace ExponentialEnumerable
             foreach (var nodeScope in nodeScopes)
             {
                 var dataFlow = context.SemanticModel.AnalyzeDataFlow(nodeScope);
-                if (!dataFlow.Succeeded) { return; }
+                if (!dataFlow.Succeeded) { continue; }
 
                 // Iterate over any symbols that are read in the loop's scope. excluding arguments and variable declarations directly under the context node
                 foreach (var readSymbol in dataFlow.ReadInside.Except(loopDataFlow.VariablesDeclared, SymbolEqualityComparer.Default))
                 {
-                    if (readSymbol is ILocalSymbol localSymbol && localSymbol.Type != null)
+                    if (!(readSymbol is ILocalSymbol localSymbol) || localSymbol.Type == null) { continue; }
+
+                    // Check if the symbol is of a type that commonly uses deferred execution
+                    if (SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iEnumerableType)
+                        || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iQueryableType)
+                        || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedEnumerableType)
+                        || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedQueryableType))
                     {
-                        // Check if the symbol is of a type that commonly uses deferred execution
-                        if (SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iEnumerableType)
-                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iQueryableType)
-                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedEnumerableType)
-                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedQueryableType))
+                        // Report a diagnostic for all of the symbol's references that may invoke deferred execution, advise them to consider pulling the execution out of the loop
+                        var syntaxReferences = GetDescendantNodesThatInvokeEnumerableEvaluation(nodeScope, localSymbol);
+                        foreach (var syntaxReference in syntaxReferences)
                         {
-                            // Report a diagnostic for all of the symbol's references that may invoke deferred execution, advise them to consider pulling the execution out of the loop
-                            var syntaxReferences = GetDescendantNodesThatInvokeEnumerableEvaluation(nodeScope, localSymbol);
-                            foreach (var syntaxReference in syntaxReferences)
-                            {
-                                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, syntaxReference.GetLocation(), localSymbol.Name));
-                            }
+                            context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, syntaxReference.GetLocation(), localSymbol.Name));   
                         }
                     }
                 }
