@@ -77,6 +77,26 @@ foreach (var one in ones)
         }
 
         [TestMethod]
+        public async Task TestDiagnosticFromNestedLoop()
+        {
+            var mainLine = TestHelpers.BuildTestClass(out string test, @"
+var ones = Enumerable.Repeat(1, 10);
+var twos = Enumerable.Repeat(2, 10);
+	
+foreach (var one1 in ones) 
+{
+    foreach (var one2 in ones) 
+    {
+        Debug.WriteLine(twos);
+    }
+}
+");
+
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(mainLine + 8, 21).WithArguments("twos");
+            await VerifyCS.VerifyAnalyzerAsync(test, expected);
+        }
+
+        [TestMethod]
         public async Task TestDiagnosticFromIEnumerable()
         {
             var mainLine = TestHelpers.BuildTestClass(out string test, @"

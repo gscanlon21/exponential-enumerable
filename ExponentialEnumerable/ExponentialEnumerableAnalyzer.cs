@@ -46,7 +46,7 @@ namespace ExponentialEnumerable
         /// While that may be desired since the query will always grab fresh data
         /// , it has the potential to cause lag/bugs when the query has side effects or iterates over a large data set
         /// </summary>
-        /// <param name="context">The analyzer context</param>
+        /// <param name="context">The analysis context</param>
         private static void LookForExponentialEnumerablesInLoops(SyntaxNodeAnalysisContext context)
         {
             var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIEnumerableMetadataName);
