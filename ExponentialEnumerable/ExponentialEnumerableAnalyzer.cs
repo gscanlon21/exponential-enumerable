@@ -2,6 +2,7 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 
@@ -13,9 +14,10 @@ namespace ExponentialEnumerable
         public const string ExponentialEnumerableDiagnosticId = "ExponentialEnumerable";
 
         private const string Category = "Usage";
-        private const string IEnumerableMetadataName = "System.Collections.IEnumerable";
+        private const string GenericIQueryableMetadataName = "System.Linq.IQueryable`1";
+        private const string GenericIOrderedQueryableMetadataName = "System.Linq.IOrderedQueryable`1";
         private const string GenericIEnumerableMetadataName = "System.Collections.Generic.IEnumerable`1";
-        private const string Var = "var";
+        private const string GenericIOrderedEnumerableMetadataName = "System.Linq.IOrderedEnumerable`1";
 
         // See https://github.com/dotnet/roslyn/blob/master/docs/analyzers/Localizing%20Analyzers.md for more on localization
         private static readonly LocalizableString ExponentialEnumerableAnalyzerTitle = new LocalizableResourceString(nameof(Resources.ExponentialEnumerableAnalyzerTitle), Resources.ResourceManager, typeof(Resources));
@@ -24,8 +26,6 @@ namespace ExponentialEnumerable
 
         private static readonly DiagnosticDescriptor ExponentialEnumerableRule = new DiagnosticDescriptor(ExponentialEnumerableDiagnosticId, ExponentialEnumerableAnalyzerTitle, ExponentialEnumerableAnalyzerMessageFormat, Category, DiagnosticSeverity.Warning, isEnabledByDefault: true, description: ExponentialEnumerableAnalyzerDescription);
         
-        private static readonly ImmutableArray<SyntaxKind> LoopKinds = ImmutableArray.Create(SyntaxKind.ForEachStatement, SyntaxKind.ForStatement, SyntaxKind.ForEachVariableStatement);
-
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get { return ImmutableArray.Create(ExponentialEnumerableRule); } }
 
         public override void Initialize(AnalysisContext context)
@@ -34,7 +34,9 @@ namespace ExponentialEnumerable
             context.EnableConcurrentExecution();
 
             // See https://github.com/dotnet/roslyn/blob/master/docs/analyzers/Analyzer%20Actions%20Semantics.md for more information
-            context.RegisterSyntaxNodeAction(LookForExponentialEnumerables, SyntaxKind.IdentifierName);
+            context.RegisterSyntaxNodeAction(LookForExponentialEnumerablesInLoops, 
+                SyntaxKind.ForEachVariableStatement, SyntaxKind.ForStatement, SyntaxKind.ForEachStatement,
+                SyntaxKind.SimpleLambdaExpression, SyntaxKind.ParenthesizedLambdaExpression);
         }
 
         /// <summary>
@@ -45,114 +47,72 @@ namespace ExponentialEnumerable
         /// , it has the potential to cause lag/bugs when the query has side effects or iterates over a large data set
         /// </summary>
         /// <param name="context">The analyzer context</param>
-        private static void LookForExponentialEnumerables(SyntaxNodeAnalysisContext context)
+        private static void LookForExponentialEnumerablesInLoops(SyntaxNodeAnalysisContext context)
         {
-            if (context.Node is IdentifierNameSyntax identNameSyntax && identNameSyntax.Identifier.ValueText != Var)
-            {
-                if (!IsGenericIEnumerable(context, identNameSyntax)) { return; }
-
-                // Loop for usages inside of a loop block
-                var loopContext = context.Node.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.Block);
-                if (loopContext != null && LoopKinds.Contains(loopContext.Parent.Kind()))
-                {
-                    // Make sure we aren't taking into account variables declared inside a loop
-                    var isDeclaredInContainingBlock = loopContext.DescendantNodes().OfType<VariableDeclarationSyntax>()
-                        .Any(n => n.Variables.Any(v => v.Identifier.ValueText == identNameSyntax.Identifier.ValueText));
-                    if (!isDeclaredInContainingBlock)
-                    {
-                        // The enumerable is being evaluated multiple times inside a loop
-                        context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation(), identNameSyntax.Identifier.ValueText));
-                    }
-                    // We found a loop block, stop the search before we go looking for a LINQ lambda
-                    return;
-                }
-
-                // Check if the enumerable is used inside another enumerable's lambda expression
-                var linqInvocation = context.Node
-                    .FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.SimpleLambdaExpression)
-                    ?.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.InvocationExpression);
-                
-                if (!TryGetIdentSyntax(linqInvocation, out IdentifierNameSyntax linqIdentExpressionSyntax, out _) 
-                    || linqIdentExpressionSyntax == identNameSyntax
-                    || !InheritsIEnumerable(context, linqIdentExpressionSyntax))
-                {
-                    return;
-                }
-
-                // The enumerable is being evaluated multiple times inside a lambda expression
-                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation(), identNameSyntax.Identifier.ValueText));
-            }
-        }
-
-        //private static bool IsDeclaredWithingScope(SyntaxNode scope, )
-
-        /// <summary>
-        /// Checks if an expression's type inherits System.Collections.IEnumerable
-        /// </summary>
-        /// <param name="context">The analysis context</param>
-        /// <param name="expression">The expression to search on</param>
-        /// <returns>True if the expression's type inherits System.CollectionsIEnumerable, otherwise False</returns>
-        private static bool InheritsIEnumerable(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
-        {
-            if (expression == null) { return false; }
-
-            var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(IEnumerableMetadataName);
-
-            var type = context.SemanticModel.GetTypeInfo(expression).Type?.OriginalDefinition;
-            if (type == null) { return false; };
-
-            return type.Interfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, iEnumerableType));
-        }
-
-        /// <summary>
-        /// Checks if an expression's type is an IEnumerable<T>
-        /// </summary>
-        /// <param name="context">The analysis context</param>
-        /// <param name="expression">The expression to search on</param>
-        /// <returns>True if the expression's type is an IEnumerable<T>, otherwise False</returns>
-        private static bool IsGenericIEnumerable(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
-        {
-            if (expression == null) { return false; }
-
             var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIEnumerableMetadataName);
+            var iQueryableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIQueryableMetadataName);
+            var iOrderedEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIOrderedEnumerableMetadataName);
+            var iOrderedQueryableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIOrderedQueryableMetadataName);
 
-            var type = context.SemanticModel.GetTypeInfo(expression).Type?.OriginalDefinition;
-            if (type is null) { return false; };
+            var loopDataFlow = context.SemanticModel.AnalyzeDataFlow(context.Node);
 
-            return SymbolEqualityComparer.Default.Equals(type, iEnumerableType);
-        }
+            // Get the syntax scope of the context node, ignoring arguments and loop variable declarations
+            var nodeScopes = context.Node.ChildNodes().Where(c =>
+                c is BlockSyntax /* For ParenthesizedLambdaExpression and loops */ 
+                || c is InvocationExpressionSyntax /* For SimpleLamdaExpressions */
+            );
+            foreach (var nodeScope in nodeScopes)
+            {
+                var dataFlow = context.SemanticModel.AnalyzeDataFlow(nodeScope);
+                if (!dataFlow.Succeeded) { return; }
 
-        /// <summary>
-        /// Tries to grab the closest expression and name IdentifierNameSyntax nodes of an InvocationExpressionSyntax
-        /// </summary>
-        /// <param name="invocationExpression">The InvocationExpressionSyntax node to start the search at</param>
-        /// <param name="identExpressionSyntax">The expression IdentifierNameSyntax if one was found, otherwise null</param>
-        /// <param name="identNameSyntax">The name IdentifierNameSyntax if one was found, otherwise null</param>
-        /// <returns>True if both the expression and name IdentifierNameSyntax nodes were found, otherwise False</returns>
-        private static bool TryGetIdentSyntax(SyntaxNode invocationExpression, out IdentifierNameSyntax identExpressionSyntax, out IdentifierNameSyntax identNameSyntax)
-        {
-            if (invocationExpression is InvocationExpressionSyntax invocationExpressionSyntax) {
-                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax)
+                // Iterate over any symbols that are read in the loop's scope. excluding arguments and variable declarations directly under the context node
+                foreach (var readSymbol in dataFlow.ReadInside.Except(loopDataFlow.VariablesDeclared, SymbolEqualityComparer.Default))
                 {
-                    if (memberAccessExpressionSyntax.Expression != null && memberAccessExpressionSyntax.Name != null)
+                    if (readSymbol is ILocalSymbol localSymbol && localSymbol.Type != null)
                     {
-                        if (memberAccessExpressionSyntax.Expression is IdentifierNameSyntax identExpression && memberAccessExpressionSyntax.Name is IdentifierNameSyntax identName)
+                        // Check if the symbol is of a type that commonly uses deferred execution
+                        if (SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iEnumerableType)
+                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iQueryableType)
+                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedEnumerableType)
+                            || SymbolEqualityComparer.Default.Equals(localSymbol.Type.OriginalDefinition, iOrderedQueryableType))
                         {
-                            identExpressionSyntax = identExpression;
-                            identNameSyntax = identName;
-                            return true;
-                        }
-                        else if (memberAccessExpressionSyntax.Expression is InvocationExpressionSyntax nestedInvocationExpressionSyntax)
-                        {
-                            return TryGetIdentSyntax(nestedInvocationExpressionSyntax, out identExpressionSyntax, out identNameSyntax);
+                            // Report a diagnostic for all of the symbol's references that may invoke deferred execution, advise them to consider pulling the execution out of the loop
+                            var syntaxReferences = GetDescendantNodesThatInvokeEnumerableEvaluation(nodeScope, localSymbol);
+                            foreach (var syntaxReference in syntaxReferences)
+                            {
+                                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, syntaxReference.GetLocation(), localSymbol.Name));
+                            }
                         }
                     }
                 }
             }
+        }
+        
+        /// <summary>
+        /// Searches descendant nodes for syntax that may evaluate an enumerable
+        /// </summary>
+        /// <param name="contextNode">Where to search for descendants</param>
+        /// <param name="enumerableSymbol">Return nodes that reference this symbol</param>
+        /// <returns>An enumerable of IdentifierNameSyntax nodes</returns>
+        private static IEnumerable<IdentifierNameSyntax> GetDescendantNodesThatInvokeEnumerableEvaluation(SyntaxNode contextNode, ILocalSymbol enumerableSymbol)
+        {
+            foreach (var descendantNode in contextNode.DescendantNodes())
+            {
+                if (descendantNode is MemberAccessExpressionSyntax memberAccessExpressionSyntax
+                    && memberAccessExpressionSyntax.Expression is IdentifierNameSyntax memberAccessExpression
+                    && memberAccessExpression.Identifier.ValueText == enumerableSymbol.Name)
+                {
+                    yield return memberAccessExpression;
+                }
 
-            identExpressionSyntax = null;
-            identNameSyntax = null;
-            return false;
+                if (descendantNode is ArgumentSyntax argumentSyntax
+                    && argumentSyntax.Expression is IdentifierNameSyntax argumentExpression
+                    && argumentExpression.Identifier.ValueText == enumerableSymbol.Name)
+                {
+                    yield return argumentExpression;
+                }
+            }
         }
     }
 }
