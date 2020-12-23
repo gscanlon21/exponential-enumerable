@@ -13,7 +13,9 @@ namespace ExponentialEnumerable
         public const string ExponentialEnumerableDiagnosticId = "ExponentialEnumerable";
 
         private const string Category = "Usage";
-        private const string IEnumerableMetadataName = "System.Collections.Generic.IEnumerable`1";
+        private const string IEnumerableMetadataName = "System.Collections.IEnumerable";
+        private const string GenericIEnumerableMetadataName = "System.Collections.Generic.IEnumerable`1";
+        private const string Var = "var";
 
         // See https://github.com/dotnet/roslyn/blob/master/docs/analyzers/Localizing%20Analyzers.md for more on localization
         private static readonly LocalizableString ExponentialEnumerableAnalyzerTitle = new LocalizableResourceString(nameof(Resources.ExponentialEnumerableAnalyzerTitle), Resources.ResourceManager, typeof(Resources));
@@ -32,57 +34,88 @@ namespace ExponentialEnumerable
             context.EnableConcurrentExecution();
 
             // See https://github.com/dotnet/roslyn/blob/master/docs/analyzers/Analyzer%20Actions%20Semantics.md for more information
-            context.RegisterSyntaxNodeAction(LookForExponentialEnumerables, SyntaxKind.InvocationExpression);
+            context.RegisterSyntaxNodeAction(LookForExponentialEnumerables, SyntaxKind.IdentifierName);
         }
 
         /// <summary>
-        /// Looks for enumerable method invocations that reside inside a loop.
+        /// Looks for enumerable usages inside a loop.
         /// 
-        /// Those cause the backing query to be executed multiple times.
+        /// Those may cause the backing query to be executed multiple times.
         /// While that may be desired since the query will always grab fresh data
         /// , it has the potential to cause lag/bugs when the query has side effects or iterates over a large data set
         /// </summary>
         /// <param name="context">The analyzer context</param>
         private static void LookForExponentialEnumerables(SyntaxNodeAnalysisContext context)
         {
-            if (TryGetIdentNameSyntax(context.Node, out IdentifierNameSyntax identNameSyntax))
+            if (context.Node is IdentifierNameSyntax identNameSyntax && identNameSyntax.Identifier.ValueText != Var)
             {
-                if (!IsIEnumerable(context, identNameSyntax)) { return; }
+                if (!IsGenericIEnumerable(context, identNameSyntax)) { return; }
 
-                // Loop for invocations inside of a loop block
-                var loopNode = context.Node.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.Block);
-                if (loopNode != null && LoopKinds.Contains(loopNode.Parent.Kind()))
+                // Loop for usages inside of a loop block
+                var loopContext = context.Node.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.Block);
+                if (loopContext != null && LoopKinds.Contains(loopContext.Parent.Kind()))
                 {
-                    // The enumerable is being executed multiple times inside a loop
-                    context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation()));
+                    // Make sure we aren't taking into account variables declared inside a loop
+                    var isDeclaredInContainingBlock = loopContext.DescendantNodes().OfType<VariableDeclarationSyntax>()
+                        .Any(n => n.Variables.Any(v => v.Identifier.ValueText == identNameSyntax.Identifier.ValueText));
+                    if (!isDeclaredInContainingBlock)
+                    {
+                        // The enumerable is being evaluated multiple times inside a loop
+                        context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation(), identNameSyntax.Identifier.ValueText));
+                    }
+                    // We found a loop block, stop the search before we go looking for a LINQ lambda
+                    return;
                 }
 
-                // If loopNode is an invocation expression and it's caller identifier is an enumerable, then report diagnostic (for linq expressions)
-                var potentialLinqInvocation = context.Node.Parent.FirstAncestorOrSelf<SyntaxNode>(a => a.Kind() == SyntaxKind.InvocationExpression);
+                // Check if the enumerable is used inside another enumerable's lambda expression
+                var linqInvocation = context.Node
+                    .FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.SimpleLambdaExpression)
+                    ?.FirstAncestorOrSelf<SyntaxNode>(n => n.Kind() == SyntaxKind.InvocationExpression);
                 
-                // Check if the parent invocation is invoked on an enumerable
-                if (!TryGetIdentNameSyntax(potentialLinqInvocation, out IdentifierNameSyntax linqIdentNameSyntax) || linqIdentNameSyntax == identNameSyntax || !IsIEnumerable(context, linqIdentNameSyntax))
+                if (!TryGetIdentSyntax(linqInvocation, out IdentifierNameSyntax linqIdentExpressionSyntax, out _) 
+                    || linqIdentExpressionSyntax == identNameSyntax
+                    || !InheritsIEnumerable(context, linqIdentExpressionSyntax))
                 {
                     return;
                 }
 
-                // The enumerable is being invoked multiple times inside a loop
-                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation()));
+                // The enumerable is being evaluated multiple times inside a lambda expression
+                context.ReportDiagnostic(Diagnostic.Create(ExponentialEnumerableRule, context.Node.GetLocation(), identNameSyntax.Identifier.ValueText));
             }
+        }
+
+        //private static bool IsDeclaredWithingScope(SyntaxNode scope, )
+
+        /// <summary>
+        /// Checks if an expression's type inherits System.Collections.IEnumerable
+        /// </summary>
+        /// <param name="context">The analysis context</param>
+        /// <param name="expression">The expression to search on</param>
+        /// <returns>True if the expression's type inherits System.CollectionsIEnumerable, otherwise False</returns>
+        private static bool InheritsIEnumerable(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
+        {
+            if (expression == null) { return false; }
+
+            var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(IEnumerableMetadataName);
+
+            var type = context.SemanticModel.GetTypeInfo(expression).Type?.OriginalDefinition;
+            if (type == null) { return false; };
+
+            return type.Interfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, iEnumerableType));
         }
 
         /// <summary>
         /// Checks if an expression's type is an IEnumerable<T>
         /// </summary>
         /// <param name="context">The analysis context</param>
-        /// <param name="expression">The expression to search for an enumerable type</param>
+        /// <param name="expression">The expression to search on</param>
         /// <returns>True if the expression's type is an IEnumerable<T>, otherwise False</returns>
-        private static bool IsIEnumerable(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
+        private static bool IsGenericIEnumerable(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
         {
-            // Returns the IEnumerable<T> generic type
-            var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(IEnumerableMetadataName);
+            if (expression == null) { return false; }
 
-            // Grab the generic type of the identifier
+            var iEnumerableType = context.SemanticModel.Compilation.GetTypeByMetadataName(GenericIEnumerableMetadataName);
+
             var type = context.SemanticModel.GetTypeInfo(expression).Type?.OriginalDefinition;
             if (type is null) { return false; };
 
@@ -90,33 +123,34 @@ namespace ExponentialEnumerable
         }
 
         /// <summary>
-        /// Tries to grab the direct IdentifierNameSyntax child of a SyntaxNode
-        /// 
-        /// If the IdentifierNameSyntax node is nested too deeply, this method will not find it
+        /// Tries to grab the closest expression and name IdentifierNameSyntax nodes of an InvocationExpressionSyntax
         /// </summary>
         /// <param name="invocationExpression">The InvocationExpressionSyntax node to start the search at</param>
-        /// <param name="identNameSyntax">The IdentifierNameSyntax if one was found, otherwise null</param>
-        /// <returns>True if the IdentifierNameSyntax node was found, otherwise False</returns>
-        private static bool TryGetIdentNameSyntax(SyntaxNode invocationExpression, out IdentifierNameSyntax identNameSyntax)
+        /// <param name="identExpressionSyntax">The expression IdentifierNameSyntax if one was found, otherwise null</param>
+        /// <param name="identNameSyntax">The name IdentifierNameSyntax if one was found, otherwise null</param>
+        /// <returns>True if both the expression and name IdentifierNameSyntax nodes were found, otherwise False</returns>
+        private static bool TryGetIdentSyntax(SyntaxNode invocationExpression, out IdentifierNameSyntax identExpressionSyntax, out IdentifierNameSyntax identNameSyntax)
         {
             if (invocationExpression is InvocationExpressionSyntax invocationExpressionSyntax) {
                 if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax)
                 {
-                    if (!(memberAccessExpressionSyntax.Expression is null))
+                    if (memberAccessExpressionSyntax.Expression != null && memberAccessExpressionSyntax.Name != null)
                     {
-                        if (memberAccessExpressionSyntax.Expression is IdentifierNameSyntax identName)
+                        if (memberAccessExpressionSyntax.Expression is IdentifierNameSyntax identExpression && memberAccessExpressionSyntax.Name is IdentifierNameSyntax identName)
                         {
+                            identExpressionSyntax = identExpression;
                             identNameSyntax = identName;
                             return true;
                         }
-                        else if (memberAccessExpressionSyntax.Expression is InvocationExpressionSyntax invocationExpressionSyntax2)
+                        else if (memberAccessExpressionSyntax.Expression is InvocationExpressionSyntax nestedInvocationExpressionSyntax)
                         {
-                            return TryGetIdentNameSyntax(invocationExpressionSyntax2, out identNameSyntax);
+                            return TryGetIdentSyntax(nestedInvocationExpressionSyntax, out identExpressionSyntax, out identNameSyntax);
                         }
                     }
                 }
             }
 
+            identExpressionSyntax = null;
             identNameSyntax = null;
             return false;
         }

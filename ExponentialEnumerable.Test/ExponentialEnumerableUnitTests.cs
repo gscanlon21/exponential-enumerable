@@ -36,9 +36,7 @@ namespace ExponentialEnumerable
     {   
         public void Main() 
         {
-            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
 	        var ones = Enumerable.Repeat(1, 10);
-	        // An enumerable of twos [2,2,2,2,2,2,2,2,2,2]
 	        var twos = Enumerable.Repeat(2, 10);
 	
 	        ones.Where(o => twos.Contains(o)).ToList();
@@ -46,7 +44,70 @@ namespace ExponentialEnumerable
     }
 }";
 
-            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 26);
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(18, 26).WithArguments("twos");
+            await VerifyCS.VerifyAnalyzerAsync(test, expected);
+        }
+
+        // Diagnostic triggered and checked for
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticForVariableUse()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(1, 10);
+	        var twos = Enumerable.Repeat(2, 10);
+	
+	        foreach (var one in ones) 
+            {
+                Debug.WriteLine(twos);
+            }
+        }
+    }
+}";
+
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 33).WithArguments("twos");
+            await VerifyCS.VerifyAnalyzerAsync(test, expected);
+        }
+
+        // Diagnostic triggered and checked for
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticForListLinq()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(1, 10).ToList();
+	        var twos = Enumerable.Repeat(2, 10);
+	
+	        ones.Where(o => twos.Contains(o)).ToList();
+        }
+    }
+}";
+
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(18, 26).WithArguments("twos");
             await VerifyCS.VerifyAnalyzerAsync(test, expected);
         }
 
@@ -68,9 +129,7 @@ namespace ExponentialEnumerable
     {   
         public void Main() 
         {
-            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
 	        var ones = Enumerable.Repeat(1, 10);
-	        // An enumerable of twos [2,2,2,2,2,2,2,2,2,2]
 	        var twos = Enumerable.Repeat(2, 10);
 	
 	        ones.Select(o => o).Where(o => twos.Contains(o)).ToList();
@@ -78,7 +137,7 @@ namespace ExponentialEnumerable
     }
 }";
 
-            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 41);
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(18, 41).WithArguments("twos");
             await VerifyCS.VerifyAnalyzerAsync(test, expected);
         }
 
@@ -100,9 +159,7 @@ namespace ExponentialEnumerable
     {   
         public void Main() 
         {
-            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
 	        var ones = Enumerable.Repeat(1, 10);
-	        // An enumerable of twos [2,2,2,2,2,2,2,2,2,2]
 	        var twos = Enumerable.Repeat(2, 10);
 	
 	        for (var i = 0; i < ones.Count(); i++) 
@@ -113,7 +170,7 @@ namespace ExponentialEnumerable
     }
 }";
 
-            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(22, 17);
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 17).WithArguments("twos");
             await VerifyCS.VerifyAnalyzerAsync(test, expected);
         }
 
@@ -135,9 +192,7 @@ namespace ExponentialEnumerable
     {   
         public void Main() 
         {
-            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
 	        var ones = Enumerable.Repeat(1, 10);
-	        // An enumerable of twos [2,2,2,2,2,2,2,2,2,2]
 	        var twos = Enumerable.Repeat(2, 10);
 	
 	        foreach (var one in ones) 
@@ -148,7 +203,7 @@ namespace ExponentialEnumerable
     }
 }";
 
-            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(22, 17);
+            var expected = VerifyCS.Diagnostic(ExponentialEnumerableAnalyzer.ExponentialEnumerableDiagnosticId).WithLocation(20, 17).WithArguments("twos");
             await VerifyCS.VerifyAnalyzerAsync(test, expected);
         }
 
@@ -170,14 +225,145 @@ namespace ExponentialEnumerable
     {   
         public void Main() 
         {
-            // An enumerable of ones [1,1,1,1,1,1,1,1,1,1]
 	        var ones = Enumerable.Repeat(1, 10);
-	        // A list of twos [2,2,2,2,2,2,2,2,2,2]
 	        var twos = Enumerable.Repeat(2, 10).ToList();
 	
 	        foreach (var one in ones) 
             {
                 twos.Contains(one);
+            }
+        }
+    }
+}";
+
+            await VerifyCS.VerifyAnalyzerAsync(test);
+        }
+
+        // No diagnostics expected to show up
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticIgnoresNestedLoop()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(1, 10);
+	
+	        foreach (var one in ones) 
+            {
+                var twos = Enumerable.Repeat(one, 10);
+                foreach (var two in twos) 
+                {
+                    Debug.WriteLine(two);
+                }
+            }
+        }
+    }
+}";
+
+            await VerifyCS.VerifyAnalyzerAsync(test);
+        }
+
+        // No diagnostics expected to show up
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticIgnoresLoop()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(1, 10);
+	
+	        foreach (var one in ones) 
+            {
+                var twos = Enumerable.Repeat(one, 10);
+                foreach (var two in twos) 
+                {
+                    Debug.WriteLine(two);
+                }
+            }
+        }
+    }
+}";
+
+            await VerifyCS.VerifyAnalyzerAsync(test);
+        }
+
+        // No diagnostics expected to show up
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticIgnoresVariableDeclaredInLoop()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(Enumerable.Empty<int>(), 10);
+	
+	        foreach (var two in ones) 
+            {
+                Debug.WriteLine(two);
+            }
+        }
+    }
+}";
+
+            await VerifyCS.VerifyAnalyzerAsync(test);
+        }
+
+        // No diagnostics expected to show up
+        [TestMethod]
+        public async Task TestExponentialEnumerableDiagnosticIgnoresReassignment()
+        {
+            var test = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+
+namespace ExponentialEnumerable
+{
+    class ExponentialEnumerableTest
+    {   
+        public void Main() 
+        {
+	        var ones = Enumerable.Repeat(1, 10);
+            var twos = Enumerable.Repeat(2, 10);
+	
+	        foreach (var one in ones) 
+            {
+                twos = Enumerable.Empty<int>();
             }
         }
     }

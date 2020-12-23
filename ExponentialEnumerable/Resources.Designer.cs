@@ -61,7 +61,7 @@ namespace ExponentialEnumerable {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Using an enumerable inside of a loop will cause it&apos;s declaration expression to be executed for each execution of the loop.
+        ///   Looks up a localized string similar to Using an enumerable inside a loop may cause its declaration expression to be evaluated for each iteration of the outer loop.
         /// </summary>
         internal static string ExponentialEnumerableAnalyzerDescription {
             get {
@@ -70,7 +70,7 @@ namespace ExponentialEnumerable {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to This enumerable should be executed outside of the containing loop. You&apos;re propably looking for a `.ToList()` call on the variable declaration.
+        ///   Looks up a localized string similar to &apos;{0}&apos; may be evaluated for each iteration of the outer loop. Consider using a different type or calling &apos;ToList&apos; on its variable declaration to force immediate query evaluation.
         /// </summary>
         internal static string ExponentialEnumerableAnalyzerMessageFormat {
             get {
@@ -79,7 +79,7 @@ namespace ExponentialEnumerable {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Enumerable execution inside loop.
+        ///   Looks up a localized string similar to Enumerable evaluation inside a loop.
         /// </summary>
         internal static string ExponentialEnumerableAnalyzerTitle {
             get {

@@ -118,15 +118,15 @@
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="ExponentialEnumerableAnalyzerDescription" xml:space="preserve">
-    <value>Using an enumerable inside of a loop will cause it's declaration expression to be executed for each execution of the loop</value>
+    <value>Using an enumerable inside a loop may cause its declaration expression to be evaluated for each iteration of the outer loop</value>
     <comment>An optional longer localizable description of the diagnostic</comment>
   </data>
   <data name="ExponentialEnumerableAnalyzerMessageFormat" xml:space="preserve">
-    <value>This enumerable should be executed outside of the containing loop. You're propably looking for a `.ToList()` call on the variable declaration</value>
+    <value>'{0}' may be evaluated for each iteration of the outer loop. Consider using a different type or calling 'ToList' on its variable declaration to force immediate query evaluation</value>
     <comment>The format-able message the diagnostic displays</comment>
   </data>
   <data name="ExponentialEnumerableAnalyzerTitle" xml:space="preserve">
-    <value>Enumerable execution inside loop</value>
+    <value>Enumerable evaluation inside a loop</value>
     <comment>The title of the diagnostic</comment>
   </data>
 </root>
