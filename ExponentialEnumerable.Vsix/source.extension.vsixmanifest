@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="ExponentialEnumerable.9fbae62a-53ee-42a3-b790-90caac695239" Version="0.2.1" Language="en-US" Publisher="GrahamScanlon"/>
+    <Identity Id="ExponentialEnumerable.9fbae62a-53ee-42a3-b790-90caac695239" Version="0.2.2" Language="en-US" Publisher="GrahamScanlon"/>
     <DisplayName>ExponentialEnumerable</DisplayName>
-    <Description xml:space="preserve">This is a sample diagnostic extension for the .NET Compiler Platform ("Roslyn").</Description>
+    <Description xml:space="preserve">Emits a warning for enumerable method invocations inside of loops or other enumerable method blocks</Description>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[15.0,)" />
